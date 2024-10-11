@@ -1,95 +1,59 @@
-import { getCategories } from "./mockedApi";
+import { CategoryListElement, Input } from './task.types';
+import { getOrder, isVisibleOnHome } from './task.utils';
 
-export interface CategoryListElement {
-  name: string;
-  id: number;
-  image: string;
-  order: number;
-  children: CategoryListElement[];
-  showOnHome: boolean;
-}
+const ShowOnHomeCategoriesThreshold = 5;
+const MaxShowOnHomeCount = 3;
 
-export const categoryTree = async (): Promise<CategoryListElement[]> => {
+/**
+ * Recursively maps an array of input data to an array of `CategoryListElement` objects, representing a category tree.
+ *
+ * @param data - An array of input data of type `T` that extends `Input<T>`.
+ * @param isRootItem - A boolean indicating whether the current item is the root of the category tree.
+ * @returns An array of `CategoryListElement` objects representing the category tree.
+ */
+const mapCategories = <T extends Input<T>>(
+  data: T[],
+  isRootItem = true
+): CategoryListElement[] => {
+  const result: CategoryListElement[] = [];
 
-  const res = await getCategories();
-
-  if (!res.data) {
-    return [];
-  }
-
-  const toShowOnHome: number[] = [];
-
-  let result = res.data.map((c1) => {
-    let order = c1.Title;
-    if (c1.Title && c1.Title.includes("#")) {
-      order = c1.Title.split("#")[0];
-      toShowOnHome.push(c1.id);
-    }
-
-    let orderL1 = parseInt(order);
-    if (isNaN(orderL1)) {
-      orderL1 = c1.id;
-    }
-    let l2Kids = c1.children
-      ? c1.children.map((c2) => {
-          let order2 = c1.Title;
-          if (c2.Title && c2.Title.includes("#")) {
-            order2 = c2.Title.split("#")[0];
-          }
-          let orderL2 = parseInt(order2);
-          if (isNaN(orderL2)) {
-            orderL2 = c2.id;
-          }
-          let l3Kids = c2.children
-            ? c2.children.map((c3) => {
-                let order3 = c1.Title;
-                if (c3.Title && c3.Title.includes("#")) {
-                  order3 = c3.Title.split("#")[0];
-                }
-                let orderL3 = parseInt(order3);
-                if (isNaN(orderL3)) {
-                  orderL3 = c3.id;
-                }
-                return {
-                  id: c3.id,
-                  image: c3.MetaTagDescription,
-                  name: c3.name,
-                  order: orderL3,
-                  children: [],
-                  showOnHome: false,
-                };
-              })
-            : [];
-          l3Kids.sort((a, b) => a.order - b.order);
-          return {
-            id: c2.id,
-            image: c2.MetaTagDescription,
-            name: c2.name,
-            order: orderL2,
-            children: l3Kids,
-            showOnHome: false,
-          };
-        })
-      : [];
-    l2Kids.sort((a, b) => a.order - b.order);
-    return {
-      id: c1.id,
-      image: c1.MetaTagDescription,
-      name: c1.name,
-      order: orderL1,
-      children: l2Kids,
-      showOnHome: false,
+  data.forEach((item) => {
+    const category: CategoryListElement = {
+      children: [],
+      id: item.id,
+      name: item.name,
+      image: item.MetaTagDescription,
+      showOnHome: isVisibleOnHome(isRootItem, item.Title),
+      order: 0,
     };
+
+    category.order = getOrder(item.Title, item.id);
+
+    if (item.children.length > 0) {
+      category.children = mapCategories(item.children, false);
+    }
+
+    result.push(category);
   });
 
-  result.sort((a, b) => a.order - b.order);
+  return result.sort((a, b) => a.order - b.order);
+};
 
-  if (result.length <= 5) {
+/**
+ * Generates a category tree from the provided input data.
+ *
+ * @param data - An array of input data of type `T` that extends `Input<T>`.
+ * @returns An array of `CategoryListElement` objects representing the category tree.
+ */
+export const categoryTree = <T extends Input<T>>(
+  data: T[]
+): CategoryListElement[] => {
+  const result = mapCategories(data);
+
+  if (result.length <= ShowOnHomeCategoriesThreshold) {
     result.forEach((a) => (a.showOnHome = true));
-  } else if (toShowOnHome.length > 0) {
-    result.forEach((x) => (x.showOnHome = toShowOnHome.includes(x.id)));
-  } else {
-    result.forEach((x, index) => (x.showOnHome = index < 3));
+  } else if (result.filter((x) => x.showOnHome).length === 0) {
+    result.forEach((x, index) => (x.showOnHome = index < MaxShowOnHomeCount));
   }
 
   return result;
